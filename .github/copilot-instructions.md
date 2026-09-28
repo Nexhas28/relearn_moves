@@ -67,7 +67,9 @@ relative path as shown above.
   exercise it without a live game: `buildRelearnable` (Gen 1's level-1 moves
   plus `learnset`, or Gold's ordered `levelMoves`, at or below level, deduped,
   minus known moves), `applyMove` (learn into an open slot or replace slot
-  1-4, full base PP), `injectSubmenu`, `tickerOffset` (marquee pacing), and
+  1-4, full base PP), `eggMoveSpecies` (the mon's species plus its
+  pre-evolutions, whose `eggMoves` lists `buildRelearnable` appends after the
+  level-up rows, flagged `egg`), `injectSubmenu`, `tickerOffset` (marquee pacing), and
   the generation-specific HM sets.
 - **FireRed / LeafGreen (Gen 3):** `mod.generation == 3` branches to
   `installGen3` before any Gen 1 / Gold registration. FireRed's party menu
@@ -76,7 +78,9 @@ relative path as shown above.
   `injectGen3Actions`; catch A on that row) and `draw` (the popup's local
   label lookup asserts on unknown ids, so RELEARN borrows STORE's
   `sCursorOptions` slot while drawing). RELEARN opens the native
-  `src/ui/game3/move_relearner.lua`. `Pokemon.isHmMove` is overridden to
+  `src/ui/game3/move_relearner.lua`; `MoveLearn.relearnableMoves` is
+  wrapped to append FRLG egg moves (own species + `Breeding.eggSpecies`)
+  only while a RELEARN session is open. `Pokemon.isHmMove` is overridden to
   false for HM-replacement parity. Originals are parked on the modules under
   `_relearnMovesVanilla` so hot reloads never stack wrappers.
 - **Data model:** Gen 1 carries `level1Moves` plus `learnset`; Gold carries

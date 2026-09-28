@@ -68,11 +68,14 @@ end
 -- level, in movelist order, deduped, minus what it already knows.  Gen 1
 -- calls the rows `learnset`; Gold calls them `levelMoves` and includes its
 -- level-1 moves in that ordered list.
--- Returns { level, move, name }.
+-- Egg moves follow the level-up moves with no level gate, flagged `egg`.
+-- Returns { level, move, name, pp, egg }.
+local eggMoveSpecies
+
 local function buildRelearnable(data, def, mon)
   local out, seen, known = {}, {}, {}
   for _, mv in ipairs(mon.moves or {}) do known[mv.id] = true end
-  local function add(level, move)
+  local function add(level, move, egg)
     if known[move] or seen[move] then return end
     seen[move] = true
     local mdef = data and data.moves and data.moves[move]
@@ -81,12 +84,53 @@ local function buildRelearnable(data, def, mon)
       move = move,
       name = (mdef and mdef.name) or move,
       pp = (mdef and mdef.pp) or 0,
+      egg = egg or nil,
     }
   end
   for _, id in ipairs(def.level1Moves or {}) do add(1, id) end
   local rows = def.learnset or def.levelMoves or {}
   for _, entry in ipairs(rows) do
     if entry.level and entry.level <= mon.level then add(entry.level, entry.move) end
+  end
+  for _, species in ipairs(eggMoveSpecies(data, mon.species or def.id)) do
+    local sdef = species == mon.species and def
+      or (data and data.pokemon and data.pokemon[species])
+    for _, id in ipairs((sdef and sdef.eggMoves) or {}) do add(0, id, true) end
+  end
+  return out
+end
+
+-- The species whose egg-move lists a mon may draw on: itself, then each
+-- pre-evolution back to the base form.  Gold keeps egg moves on the base
+-- form only (data/pokemon/egg_moves.asm), so an evolved mon needs the walk
+-- back; Gen 1 has no egg moves and every list comes out empty.  A
+-- pre-evolution is the species whose evolution rows lead INTO this one
+-- (Gold writes `into`, Gen 1 `species`); keys are scanned in sorted order so
+-- the answer never depends on table iteration order.
+function eggMoveSpecies(data, species)
+  local out = {}
+  local pokemon = data and data.pokemon
+  if species == nil then return out end
+  out[1] = species
+  if type(pokemon) ~= "table" then return out end
+  local keys = {}
+  for key in pairs(pokemon) do keys[#keys + 1] = key end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  local visited = { [species] = true }
+  local current = species
+  for _ = 1, 3 do
+    local previous
+    for _, key in ipairs(keys) do
+      local def = pokemon[key]
+      for _, evo in ipairs((type(def) == "table" and def.evolutions) or {}) do
+        if (evo.into or evo.species) == current then previous = key break end
+      end
+      if previous then break end
+    end
+    if previous == nil or visited[previous] then break end
+    visited[previous] = true
+    out[#out + 1] = previous
+    current = previous
   end
   return out
 end
@@ -448,7 +492,8 @@ function MoveRelearn:draw()
     local last = math.min(#self.list, self.scroll + ROWS)
     for i = self.scroll + 1, last do
       local e = self.list[i]
-      drawRowLabel(self.game, ("LV%d"):format(e.level), e.name, e.pp,
+      local prefix = e.egg and Strings("EGG") or ("LV%d"):format(e.level)
+      drawRowLabel(self.game, prefix, e.name, e.pp,
                    i - self.scroll, self.tick)
     end
     Font.drawCode(CURSOR, CLIP_X - 8, (5 + self.index - self.scroll) * 8)
@@ -531,6 +576,34 @@ local function hideGen3PartySprites(PM, Oam)
   PM._summaryIcon = nil
 end
 
+-- FireRed's egg moves for a mon: FRLG keeps gEggMoves on the base form
+-- only, so the list is the mon's own species plus its egg species
+-- (pokefirered daycare.c GetEggSpecies), minus known moves and anything
+-- already in `list`.  Appends to `list` in place (move ids) and returns it.
+local function appendGen3EggMoves(g3, mon, list)
+  local Pokemon = g3.Pokemon
+  if not mon or Pokemon.isEgg(mon) then return list end
+  local species = tonumber(Pokemon.speciesOf(mon))
+  if not species then return list end
+  local seen = {}
+  for _, id in ipairs(list) do seen[id] = true end
+  for slot = 1, 4 do
+    local id = tonumber(Pokemon.moveIdAt(mon, slot))
+    if id then seen[id] = true end
+  end
+  local base = tonumber(g3.Breeding.eggSpecies(species))
+  for _, from in ipairs({ species, base ~= species and base or nil }) do
+    for _, raw in ipairs(Pokemon.eggMoves(from) or {}) do
+      local id = tonumber(raw)
+      if id and id > 0 and not seen[id] then
+        seen[id] = true
+        list[#list + 1] = id
+      end
+    end
+  end
+  return list
+end
+
 local function openGen3Relearner(g3)
   local PM = g3.PartyMenu
   local mon = PM._party and PM._party[PM.cursor]
@@ -539,7 +612,11 @@ local function openGen3Relearner(g3)
     PM.mode = "list"
     return
   end
+  -- Egg moves join the list only for this mod's RELEARN session, so the
+  -- Two Island tutor keeps its vanilla level-up list.
+  g3.eggSession = mon
   if #g3.MoveLearn.relearnableMoves(mon) == 0 then
+    g3.eggSession = nil
     -- The dismissed message drops back to the party list.
     PM.showMessage(Strings("No moves to relearn."))
     return
@@ -549,6 +626,7 @@ local function openGen3Relearner(g3)
   g3.Relearner.show(mon, {
     session = PM._session,
     onDone = function()
+      g3.eggSession = nil
       PM.mode = "list"
       if PM.open then PM.reloadSprites() end
     end,
@@ -568,6 +646,7 @@ local function installGen3(mod)
     Pokemon = need("src.core.game3.pokemon"),
     RomText = need("src.core.game3.rom_text"),
     Oam = need("src.core.game3.oam"),
+    Breeding = need("src.core.game3.breeding"),
   }
   for name, module in pairs(g3) do
     if not module then
@@ -575,6 +654,7 @@ local function installGen3(mod)
     end
   end
   local PM, RomText, Pokemon = g3.PartyMenu, g3.RomText, g3.Pokemon
+  local MoveLearn = g3.MoveLearn
 
   local vanilla = PM[GEN3_VANILLA]
   if not vanilla then
@@ -585,6 +665,23 @@ local function installGen3(mod)
   if not vanillaHm then
     vanillaHm = Pokemon.isHmMove
     Pokemon[GEN3_VANILLA] = vanillaHm
+  end
+
+  local vanillaRelearnable = MoveLearn[GEN3_VANILLA]
+  if not vanillaRelearnable then
+    vanillaRelearnable = MoveLearn.relearnableMoves
+    MoveLearn[GEN3_VANILLA] = vanillaRelearnable
+  end
+
+  -- The native relearner reads its list through relearnableMoves on open
+  -- and again after a cancelled learn; during a RELEARN session the egg
+  -- moves ride along after the level-up moves.
+  function MoveLearn.relearnableMoves(mon, ...)
+    local list = vanillaRelearnable(mon, ...)
+    if mon ~= nil and mon == g3.eggSession then
+      return appendGen3EggMoves(g3, mon, list)
+    end
+    return list
   end
 
   function PM.handleInput(input)
@@ -636,6 +733,8 @@ local function installGen3(mod)
     labelId = GEN3_LABEL_ID,
     labelIndex = GEN3_LABEL_INDEX,
     vanillaIsHmMove = vanillaHm,
+    vanillaRelearnable = vanillaRelearnable,
+    appendEggMoves = function(mon, list) return appendGen3EggMoves(g3, mon, list or {}) end,
   }
 end
 
@@ -644,6 +743,7 @@ return function(mod)
 
   Ui = mod.ui
   mod.exports.buildRelearnable = buildRelearnable
+  mod.exports.eggMoveSpecies = eggMoveSpecies
   mod.exports.applyMove = applyMove
   mod.exports.injectSubmenu = injectSubmenu
   mod.exports.tickerOffset = MoveRelearn.tickerOffset

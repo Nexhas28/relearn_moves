@@ -32,6 +32,23 @@ RomText.at = function(name, i, ...)
 end
 local vanillaIsHm = Pokemon.isHmMove
 
+-- No ROM: stand in FireRed's species data.  The level-up list is the native
+-- relearnableMoves (stubbed before the mod wraps it); species 1 evolves from
+-- base species 172 and 172 carries the egg moves, as gEggMoves does.
+local relearnable = { 33, 45 }
+MoveLearn.relearnableMoves = function()
+  local out = {}
+  for i, id in ipairs(relearnable) do out[i] = id end
+  return out
+end
+local eggTable = { [172] = { 186, 33, 227 } }
+Pokemon.eggMoves = function(species) return eggTable[species] end
+Pokemon.speciesOf = function(m) return m.species end
+Pokemon.isEgg = function(m) return m.isEgg == true end
+Pokemon.moveIdAt = function(m, slot) return m.moves and m.moves[slot] end
+local Breeding = require("src.core.game3.breeding")
+Breeding.eggSpecies = function(species) return species == 1 and 172 or species end
+
 local run = T.sdk.loadMod(modPath, { data = Data, generation = 3 })
 T.eq(run.mod and run.mod.state, "loaded", "runs on FireRed")
 T.eq(#run.errors, 0, "loads clean (" .. tostring(run.errors[1]) .. ")")
@@ -66,8 +83,6 @@ local function press(key)
   pressed = nil
 end
 
-local relearnable = { 33, 45 }
-MoveLearn.relearnableMoves = function() return relearnable end
 local shown
 Relearner.show = function(mon, opts) shown = { mon = mon, opts = opts } end
 local reloaded = 0
@@ -109,12 +124,36 @@ T.neq(shown, nil, "RELEARN opens FireRed's Move Relearner")
 T.eq(shown and shown.mon, mon, "relearner gets the selected mon")
 T.eq(shown and shown.opts.session, PM._session, "relearner gets the party session")
 T.eq(PM.mode, "list", "party menu waits in list mode underneath")
+local during = MoveLearn.relearnableMoves(mon)
+T.eq(table.concat(during, ","), "33,45,186,227",
+     "RELEARN session lists egg moves after level-up moves, deduped")
+T.eq(table.concat(MoveLearn.relearnableMoves({ species = 1, level = 5, moves = {} }), ","),
+     "33,45", "other mons (e.g. the Two Island tutor) keep the vanilla list")
 shown.opts.onDone(true)
 T.eq(reloaded, 1, "party icons come back after the relearner closes")
+T.eq(table.concat(MoveLearn.relearnableMoves(mon), ","), "33,45",
+     "egg moves drop out once the RELEARN session ends")
+T.eq(table.concat(ex.gen3.appendEggMoves({ species = 1, moves = { 186 } }, {}), ","),
+     "33,227", "known egg moves are skipped")
+T.eq(#ex.gen3.appendEggMoves({ species = 1, isEgg = true, moves = {} }, {}), 0,
+     "an egg gets no egg moves")
+T.eq(#ex.gen3.appendEggMoves({ species = 50, moves = {} }, {}), 0,
+     "a line with no egg moves adds nothing")
+
+-- egg moves alone keep RELEARN usable
+shown = nil
+relearnable = {}
+openParty(false)
+press("a")
+PM.actionCursor = #PM.ACTIONS - 1
+press("a")
+T.neq(shown, nil, "a mon with only egg moves still opens the relearner")
+shown.opts.onDone(false)
 
 -- nothing to relearn: a party message, no relearner
 shown = nil
 relearnable = {}
+mon.species = 50
 openParty(false)
 press("a")
 PM.actionCursor = #PM.ACTIONS - 1
@@ -126,6 +165,7 @@ PM.dismissMessage()
 T.eq(PM.mode, "list", "message dismisses back to the party list")
 
 -- CANCEL and B still behave like vanilla
+mon.species = 1
 relearnable = { 33 }
 openParty(false)
 press("a")

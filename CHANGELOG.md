@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0] - 2026-09-28
+
+### Added
+
+- Egg moves in the relearn list on Gold and FireRed / LeafGreen. A mon can
+  relearn the egg moves of its own species and its pre-evolutions (so Raichu
+  gets Pichu's), at any level. They follow the level-up moves; on Gold the
+  row reads `EGG` instead of a level. Gen 1 has no egg moves, so its list is
+  unchanged.
+- On FireRed, egg moves are added only for the RELEARN party option; the
+  Two Island move tutor keeps its vanilla list.
+
 ## [1.6.0] - 2026-09-28
 
 ### Added

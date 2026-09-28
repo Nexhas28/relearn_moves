@@ -8,6 +8,7 @@ return {
     changed = {
       "the field party-menu submenu gains a RELEARN option at the bottom, after SWITCH",
       "RELEARN lists the mon's species level-up movelist at or below its current level, minus moves it already knows",
+      "on Gold and FireRed/LeafGreen, RELEARN also lists egg moves from the mon's species and pre-evolutions, at any level",
       "picking a move with a free slot learns it immediately at full base PP",
       "a full moveset opens a forget list; HM moves can't be forgotten unless the QoL Toggles mod's FORGETTABLE HMs toggle is on (including Gold's WATERFALL and WHIRLPOOL)",
     },

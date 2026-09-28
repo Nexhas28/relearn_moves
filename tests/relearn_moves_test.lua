@@ -62,6 +62,21 @@ Data.pokemon.FIXMON_REL.levelMoves = Data.pokemon.FIXMON_REL.learnset
 Data.pokemon.FIXMON_REL.learnset = nil
 Data.pokemon.FIXMON_REL.level1Moves = nil
 
+-- Gold keeps egg moves on the base form (data/pokemon/egg_moves.asm); the
+-- evolved mon reaches them through the pre-evolution walk.
+Data.pokemon.FIXMON_EGGBASE = {
+  id = "FIXMON_EGGBASE", name = "FIXMON EGGBASE", types = { "NORMAL" },
+  levelMoves = { { level = 1, move = "FIX_TACKLE" } },
+  eggMoves = { "FIX_LONG", "FIX_TACKLE", "FIX_GROWL" },
+  evolutions = { { method = "LEVEL", level = 10, into = "FIXMON_EGGEVO" } },
+}
+Data.pokemon.FIXMON_EGGEVO = {
+  id = "FIXMON_EGGEVO", name = "FIXMON EGGEVO", types = { "NORMAL" },
+  levelMoves = { { level = 1, move = "FIX_TACKLE" },
+                 { level = 30, move = "FIX_EMBERISH" } },
+  evolutions = {},
+}
+
 local run = T.sdk.loadMod(modPath, { data = Data, generation = 2 })
 T.eq(run.mod and run.mod.state, "loaded", "runs on Gold")
 T.eq(#run.errors, 0, "loads clean (" .. tostring(run.errors[1]) .. ")")
@@ -71,6 +86,28 @@ T.neq(ex, nil, "exports reachable")
 local function mon(level, moves)
   local m = { species = "FIXMON_REL", level = level, moves = moves or {} }
   return m
+end
+
+-- ------------------------------------------------------ egg moves
+
+T.eq(table.concat(ex.eggMoveSpecies(Data, "FIXMON_EGGEVO"), ","),
+     "FIXMON_EGGEVO,FIXMON_EGGBASE", "egg-move walk reaches the base form")
+T.eq(table.concat(ex.eggMoveSpecies(Data, "FIXMON_REL"), ","), "FIXMON_REL",
+     "a species with no pre-evolution is its own base")
+do
+  local evo = { species = "FIXMON_EGGEVO", level = 12,
+                moves = { { id = "FIX_TACKLE" }, { id = "FIX_GROWL" } } }
+  local list = ex.buildRelearnable(Data, Data.pokemon.FIXMON_EGGEVO, evo)
+  T.eq(#list, 1, "known moves and level-gated rows stay out; one egg move left")
+  T.eq(list[1] and list[1].move, "FIX_LONG", "base-form egg move offered")
+  T.eq(list[1] and list[1].egg, true, "egg moves are flagged")
+  T.eq(list[1] and list[1].pp, 5, "egg move carries its base PP")
+  local base = { species = "FIXMON_EGGBASE", level = 2, moves = {} }
+  local bl = ex.buildRelearnable(Data, Data.pokemon.FIXMON_EGGBASE, base)
+  local ids = {}
+  for i, e in ipairs(bl) do ids[i] = e.move .. (e.egg and "*" or "") end
+  T.eq(table.concat(ids, ","), "FIX_TACKLE,FIX_LONG*,FIX_GROWL*",
+       "egg moves follow level-up moves with no level gate, deduped")
 end
 
 -- ------------------------------------------------------ buildRelearnable

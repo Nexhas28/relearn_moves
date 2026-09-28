@@ -14,6 +14,10 @@ the required level. Works on Red/Blue/Yellow, Gold, and FireRed/LeafGreen.
 The normal level-up/TM move-learning screen also allows an HM to be replaced
 when the moveset is full.
 
+On Gold and FireRed/LeafGreen the list also includes egg moves -- the egg
+moves of the mon's species and its pre-evolutions, available at any level.
+On Gold they read `EGG` instead of a level.
+
 The option never appears in battle. A mon with nothing left to relearn at
 its current level reads "No moves to relearn." instead of hiding the row.
 
