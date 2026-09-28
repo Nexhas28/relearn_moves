@@ -1,6 +1,6 @@
 -- Sharing metadata, read by tooling and the manager detail pane only.
 return {
-  summary = "Party menu gains RELEARN (bottom of the submenu, after SWITCH, field only) on Gen 1 and Gold.",
+  summary = "Party menu gains RELEARN (field only) on Gen 1, Gold and FireRed/LeafGreen.",
   author = "Shane McGovern",
   contact = "https://github.com/ShaneMcGovernIE",
   tags = { "gameplay", "quality-of-life", "party" },
@@ -11,7 +11,9 @@ return {
       "picking a move with a free slot learns it immediately at full base PP",
       "a full moveset opens a forget list; HM moves can't be forgotten unless the QoL Toggles mod's FORGETTABLE HMs toggle is on (including Gold's WATERFALL and WHIRLPOOL)",
     },
-    added = {},
+    added = {
+      "FireRed/LeafGreen: RELEARN sits above CANCEL in the field party popup and opens the game's native Move Relearner screen",
+    },
     known = {
       "battle never shows RELEARN -- the battle submenu stays SWITCH / STATS / CANCEL",
       "RELEARN always shows out of battle; a mon with nothing left to relearn reads 'No moves to relearn.'",
@@ -19,5 +21,5 @@ return {
     },
   },
   credits = {},
-  compat = { engine = ">=0.0.0-0 <2.0.0", modApi = 2, games = { "gen1", "gen2" } },
+  compat = { engine = ">=0.0.0-0 <2.0.0", modApi = 2, games = { "gen1", "gen2", "gen3" } },
 }

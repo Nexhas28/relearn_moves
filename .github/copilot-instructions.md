@@ -17,6 +17,8 @@ engine's `src/` tree and `tools/modkit.py`.
 # Run the headless test suite (the only test file — this IS the single test):
 # from the engine checkout, with POKEPORT_DATA_DIR set so no ROM is needed.
 POKEPORT_DATA_DIR=tests/fixture_data luajit mods/relearn_moves/tests/relearn_moves_test.lua
+# FireRed (Gen 3) adapter:
+POKEPORT_DATA_DIR=tests/fixture_data luajit mods/relearn_moves/tests/relearn_moves_gen3_test.lua
 # If this repository is not installed under engine/mods, pass its relative
 # path instead; the test derives the mod path from its own filename.
 POKEPORT_DATA_DIR=tests/fixture_data luajit ../../Downloads/relearn_moves-main/tests/relearn_moves_test.lua
@@ -67,6 +69,16 @@ relative path as shown above.
   minus known moves), `applyMove` (learn into an open slot or replace slot
   1-4, full base PP), `injectSubmenu`, `tickerOffset` (marquee pacing), and
   the generation-specific HM sets.
+- **FireRed / LeafGreen (Gen 3):** `mod.generation == 3` branches to
+  `installGen3` before any Gen 1 / Gold registration. FireRed's party menu
+  (`src/ui/game3/party_menu.lua`) has no submenu hook, so the mod wraps its
+  `handleInput` (append RELEARN before CANCEL via the pure
+  `injectGen3Actions`; catch A on that row) and `draw` (the popup's local
+  label lookup asserts on unknown ids, so RELEARN borrows STORE's
+  `sCursorOptions` slot while drawing). RELEARN opens the native
+  `src/ui/game3/move_relearner.lua`. `Pokemon.isHmMove` is overridden to
+  false for HM-replacement parity. Originals are parked on the modules under
+  `_relearnMovesVanilla` so hot reloads never stack wrappers.
 - **Data model:** Gen 1 carries `level1Moves` plus `learnset`; Gold carries
   ordered `levelMoves` rows (`{level, move}`), including level-1 moves. Moves
   live in `game.data.moves[id]` with `name` and `pp`. A mon's moves are

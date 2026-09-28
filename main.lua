@@ -4,9 +4,11 @@
 -- existing move, including HMs, in both this flow and the vanilla
 -- level-up/TM move-learning flow.  Battle never sees the RELEARN option.
 -- The same hook and registered screen run on both Gen 1 and Gold; the data
--- adapter below accepts both learnset shapes.
+-- adapter below accepts both learnset shapes.  FireRed / LeafGreen (Gen 3)
+-- has no party-submenu hook, so it gets its own adapter at the bottom of
+-- this file that opens the game's native Move Relearner screen instead.
 --
--- Wiring: the ui.party.submenu hook receives the vanilla item list after it
+-- Wiring (Gen 1 / Gold): the ui.party.submenu hook receives the vanilla item list after it
 -- is built on both generations; hook-injected entries carry an onSelect
 -- callback instead of an action id, so the vanilla update handles the rest.
 -- The learn flow is a screen registered in the screens registry and pushed
@@ -14,7 +16,6 @@
 
 local Strings = require("src.core.Strings")
 local Sound = require("src.core.Sound")
-local VanillaMoveLearnMenu = require("src.ui.MoveLearnMenu")
 
 -- The public UI facade is bound when the entry function runs.  Keeping this
 -- out of file-scope engine requires lets Gold resolve its own screen stack and
@@ -118,6 +119,9 @@ end
 -- Keep its enter/draw/finish behavior and replace only that input method so
 -- RELEARN and ordinary move learning share the same HM policy.
 local function unlockedMoveLearn(game, mon, newMoveId, onDone, learnedSound)
+  -- Required lazily: this is a Gen 1 / Gold screen and a FireRed boot never
+  -- reaches it.
+  local VanillaMoveLearnMenu = require("src.ui.MoveLearnMenu")
   local screen = VanillaMoveLearnMenu.new(game, mon, newMoveId, onDone,
                                           learnedSound)
   function screen:update(_dt)
@@ -462,7 +466,182 @@ function MoveRelearn:draw()
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+-- ---------- FireRed / LeafGreen (Gen 3) ----------
+--
+-- FireRed's party menu (src/ui/game3/party_menu.lua) is a module singleton
+-- with no ui.party.submenu hook: the field action popup is a list of action
+-- ids rebuilt on every A press in "list" mode.  The adapter wraps its
+-- handleInput to append RELEARN before CANCEL and to catch A on that row,
+-- and opens the game's own Move Relearner screen (src/ui/game3/
+-- move_relearner.lua, the Two Island tutor's UI, pokefirered learn_move.c)
+-- for the chosen mon.  That screen already lists level-up moves at or below
+-- the mon's level minus known moves, asks which move to forget through the
+-- summary screen, and prints the ROM's own text.
+
+local GEN3_ACTION = "RELEARN"
+-- The popup draws each row through a local sCursorOptions lookup that
+-- asserts on unknown ids.  While it draws, the RELEARN row borrows STORE's
+-- slot (a PC/daycare-only option the field popup never lists) and the
+-- lookup for that slot returns the RELEARN label.
+local GEN3_LABEL_ID = "STORE"
+local GEN3_LABEL_INDEX = 14 -- pokefirered/src/data/party_menu.h:1059
+-- Originals are parked on the engine module so a hot reload re-wraps the
+-- vanilla functions instead of stacking wrappers.
+local GEN3_VANILLA = "_relearnMovesVanilla"
+
+-- Pure (mod.exports.injectGen3Actions for headless tests): add RELEARN
+-- before CANCEL in FireRed's field action list.  Only the field shape
+-- ({ SUMMARY, [field moves], SWITCH, [ITEM], CANCEL }) qualifies: battle
+-- lists open with SHIFT / SEND OUT, the double-battle and multi-choice
+-- lists carry no SWITCH, and an egg has nothing to relearn.
+local function injectGen3Actions(actions, mon)
+  if type(actions) ~= "table" or actions[1] ~= "SUMMARY" then return actions end
+  if mon and (mon.isEgg == true or mon.egg == true) then return actions end
+  local hasSwitch, cancelAt = false, nil
+  for i, act in ipairs(actions) do
+    if act == GEN3_ACTION then return actions end
+    if act == "SWITCH" then hasSwitch = true end
+    if act == "CANCEL" then cancelAt = i end
+  end
+  if not (hasSwitch and cancelAt) then return actions end
+  table.insert(actions, cancelAt, GEN3_ACTION)
+  return actions
+end
+
+local function gen3Se(id)
+  pcall(function() require("src.core.game3.audio").playSe(id) end)
+end
+
+-- The party icons are OAM sprites that draw whatever screen is on top, so
+-- they come down before the relearner opens (what SUMMARY does through the
+-- party menu's local destroy_party_oam) and PartyMenu.reloadSprites puts
+-- them back.
+local function hideGen3PartySprites(PM, Oam)
+  local function destroy(id)
+    if id ~= nil then Oam.destroySprite(id) end
+  end
+  for _, slot in pairs(PM._oam or {}) do
+    destroy(slot.mon)
+    destroy(slot.ball)
+    destroy(slot.status)
+    destroy(slot.item)
+  end
+  destroy(PM._summaryIcon)
+  PM._oam = nil
+  PM._summaryIcon = nil
+end
+
+local function openGen3Relearner(g3)
+  local PM = g3.PartyMenu
+  local mon = PM._party and PM._party[PM.cursor]
+  gen3Se(5)
+  if not mon then
+    PM.mode = "list"
+    return
+  end
+  if #g3.MoveLearn.relearnableMoves(mon) == 0 then
+    -- The dismissed message drops back to the party list.
+    PM.showMessage(Strings("No moves to relearn."))
+    return
+  end
+  PM.mode = "list"
+  hideGen3PartySprites(PM, g3.Oam)
+  g3.Relearner.show(mon, {
+    session = PM._session,
+    onDone = function()
+      PM.mode = "list"
+      if PM.open then PM.reloadSprites() end
+    end,
+  })
+end
+
+local function installGen3(mod)
+  local function need(name)
+    local ok, module = pcall(require, name)
+    if ok and type(module) == "table" then return module end
+    return nil
+  end
+  local g3 = {
+    PartyMenu = need("src.ui.game3.party_menu"),
+    Relearner = need("src.ui.game3.move_relearner"),
+    MoveLearn = need("src.core.game3.move_learn"),
+    Pokemon = need("src.core.game3.pokemon"),
+    RomText = need("src.core.game3.rom_text"),
+    Oam = need("src.core.game3.oam"),
+  }
+  for name, module in pairs(g3) do
+    if not module then
+      error(("[relearn_moves] FireRed module %s is missing"):format(name), 0)
+    end
+  end
+  local PM, RomText, Pokemon = g3.PartyMenu, g3.RomText, g3.Pokemon
+
+  local vanilla = PM[GEN3_VANILLA]
+  if not vanilla then
+    vanilla = { handleInput = PM.handleInput, draw = PM.draw }
+    PM[GEN3_VANILLA] = vanilla
+  end
+  local vanillaHm = Pokemon[GEN3_VANILLA]
+  if not vanillaHm then
+    vanillaHm = Pokemon.isHmMove
+    Pokemon[GEN3_VANILLA] = vanillaHm
+  end
+
+  function PM.handleInput(input)
+    if PM.mode == "action" and input and input:wasPressed("a")
+        and PM.ACTIONS[PM.actionCursor] == GEN3_ACTION then
+      return openGen3Relearner(g3)
+    end
+    local before = PM.mode
+    local result = vanilla.handleInput(input)
+    if before == "list" and PM.mode == "action" and not PM._battle then
+      injectGen3Actions(PM.ACTIONS, PM._party and PM._party[PM.cursor])
+    end
+    return result
+  end
+
+  function PM.draw(...)
+    local actions = PM.ACTIONS
+    local at
+    if PM.mode == "action" and type(actions) == "table" then
+      for i, act in ipairs(actions) do
+        if act == GEN3_ACTION then at = i break end
+      end
+    end
+    if not at then return vanilla.draw(...) end
+    local romAt = RomText.at
+    actions[at] = GEN3_LABEL_ID
+    RomText.at = function(name, i, ...)
+      if name == "sCursorOptions" and i == GEN3_LABEL_INDEX then
+        return Strings(GEN3_ACTION)
+      end
+      return romAt(name, i, ...)
+    end
+    local ok, err = pcall(vanilla.draw, ...)
+    RomText.at = romAt
+    actions[at] = GEN3_ACTION
+    if not ok then error(err, 0) end
+  end
+
+  -- HM parity with the Gen 1 / Gold flows: an HM can be replaced when a
+  -- full moveset learns a move (RELEARN, level-up, TM, tutor).  FireRed
+  -- gates that in three places -- the summary screen's forget pick, the
+  -- learn-move flow, and Pokemon.replaceMove -- all through isHmMove, and
+  -- move learning is its only caller.
+  Pokemon.isHmMove = function() return false end
+
+  mod.exports.injectGen3Actions = injectGen3Actions
+  mod.exports.gen3 = {
+    action = GEN3_ACTION,
+    labelId = GEN3_LABEL_ID,
+    labelIndex = GEN3_LABEL_INDEX,
+    vanillaIsHmMove = vanillaHm,
+  }
+end
+
 return function(mod)
+  if mod.generation == 3 then return installGen3(mod) end
+
   Ui = mod.ui
   mod.exports.buildRelearnable = buildRelearnable
   mod.exports.applyMove = applyMove

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0] - 2026-09-28
+
+### Added
+
+- FireRed / LeafGreen (Gen 3) support. The field party menu's action popup
+  gains RELEARN before CANCEL, which opens the game's native Move Relearner
+  screen for the chosen POKéMON (no Heart Scale needed). A mon with nothing
+  to relearn shows "No moves to relearn."; battle menus are untouched.
+- HM moves can be replaced on FireRed too (relearn, level-up, TM and tutor
+  flows), matching the Gen 1 / Gold behavior.
+- Headless FireRed coverage in `tests/relearn_moves_gen3_test.lua`.
+
 ## [1.5.5] - 2026-09-04
 
 ### Fixed
